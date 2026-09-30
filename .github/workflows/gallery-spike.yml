@@ -51,7 +51,9 @@ jobs:
             "CPU: $($cpu.Name)",
             "RAM: $([math]::Round($system.TotalPhysicalMemory / 1GB, 1)) GiB",
             "GPU: $($gpu.Name)",
-            "dotnet: $(dotnet --version)"
+            "dotnet: $(dotnet --version)",
+            "SessionName: $env:SESSIONNAME",
+            "UserInteractive: $([Environment]::UserInteractive)"
           ) | Set-Content artifacts/runner-spec.txt
       - name: Run automated WinUI benchmark
         id: benchmark
@@ -61,6 +63,7 @@ jobs:
           try {
             $artifactDir = Join-Path $PWD 'artifacts'
             $report = Join-Path $artifactDir 'gallery-winui-benchmark.json'
+            $started = Get-Date
             $exe = Get-ChildItem -Path 'spikes/M000.GalleryPerformance/PhotoArchive.M000.GallerySpike/bin' -Filter 'PhotoArchive.M000.GallerySpike.exe' -Recurse | Select-Object -First 1
             if ($null -eq $exe) { throw 'WinUI spike executable not found.' }
             "Executable: $($exe.FullName)" | Set-Content artifacts/benchmark-launch.txt
@@ -70,6 +73,10 @@ jobs:
               throw 'Automated WinUI benchmark timed out after 90 seconds.'
             }
             "ExitCode: $($process.ExitCode)" | Add-Content artifacts/benchmark-launch.txt
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $started.AddSeconds(-5) } -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -match 'PhotoArchive.M000.GallerySpike|Microsoft\.ui\.xaml|WindowsAppRuntime|\.NET Runtime' } |
+              Select-Object TimeCreated, Id, ProviderName, LevelDisplayName, Message |
+              Format-List | Out-String | Set-Content artifacts/application-events.txt
             if (-not (Test-Path $report)) { throw 'Benchmark process exited without writing a report.' }
             Get-Content $report
           }

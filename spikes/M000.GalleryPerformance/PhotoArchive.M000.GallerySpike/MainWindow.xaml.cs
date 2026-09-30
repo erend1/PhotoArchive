@@ -22,15 +22,19 @@ public sealed partial class MainWindow : Window, IGallerySpikeView
         SyntheticThumbnailService thumbnails,
         VirtualizedGallerySource items)
     {
+        SpikeStartupTrace.Write("MainWindow constructor entered.");
         _options = options;
         _pages = pages;
         _thumbnails = thumbnails;
         _items = items;
         _presenter = new GalleryPresenter(this, thumbnails);
 
+        SpikeStartupTrace.Write("MainWindow.InitializeComponent starting.");
         InitializeComponent();
+        SpikeStartupTrace.Write("MainWindow.InitializeComponent completed.");
         Title = "PhotoArchive M000 Gallery Spike";
         GalleryItemsView.ItemsSource = _items;
+        SpikeStartupTrace.Write("ItemsView.ItemsSource assigned.");
     }
 
     public void SetStatus(string status) => StatusText.Text = status;
@@ -39,10 +43,12 @@ public sealed partial class MainWindow : Window, IGallerySpikeView
 
     private async void Root_Loaded(object sender, RoutedEventArgs e)
     {
+        SpikeStartupTrace.Write("Root.Loaded entered.");
         SetStatus($"Virtual source ready: {_options.DatasetSize:N0} synthetic assets; originals are never read.");
 
         if (Environment.GetCommandLineArgs().Any(static arg => string.Equals(arg, "--benchmark", StringComparison.OrdinalIgnoreCase)))
         {
+            SpikeStartupTrace.Write("Automated benchmark requested.");
             await RunBenchmarkAsync(exitWhenFinished: true);
         }
     }
@@ -105,6 +111,7 @@ public sealed partial class MainWindow : Window, IGallerySpikeView
         }
 
         _benchmarkRunning = true;
+        SpikeStartupTrace.Write("RunBenchmarkAsync entered.");
         try
         {
             var firstUsable = await _presenter.FirstUsableMilliseconds.WaitAsync(TimeSpan.FromSeconds(15));
@@ -145,6 +152,7 @@ public sealed partial class MainWindow : Window, IGallerySpikeView
                 reportPath,
                 JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
 
+            SpikeStartupTrace.Write($"Benchmark report written with recommendation {report.Recommendation}.");
             SetStatus($"Benchmark complete: {report.Recommendation}. Report: {reportPath}");
 
             if (exitWhenFinished)
@@ -154,6 +162,7 @@ public sealed partial class MainWindow : Window, IGallerySpikeView
         }
         catch (Exception ex)
         {
+            SpikeStartupTrace.Write($"Benchmark failed: {ex}");
             SetStatus($"Benchmark failed: {ex.GetType().Name}: {ex.Message}");
             await WriteFailureReportAsync(ex);
             if (exitWhenFinished)
