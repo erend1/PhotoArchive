@@ -42,7 +42,7 @@ The provider carries the SQLite client/native dependencies transitively; this sp
 1. **New archive creation** — creates `Media/`, `.archive/archive.json`, `.archive/manifests/`, and `.archive/catalog.sqlite`, then applies both EF Core migrations automatically.
 2. **Reopen** — reopens an existing archive without credentials or database configuration outside the archive root.
 3. **Move/reopen** — creates and populates an archive under one root, moves the whole directory to a different nested root, reopens it, and resolves the same media through its archive-relative path.
-4. **Migration** — creates a real V1 database by migrating only to the first discovered migration, then applies `202609300002_AddRebuildableAndCatalogOnlyFields` to the existing database.
+4. **Migration** — creates a real V1 database by migrating only to the first discovered migration, then applies `20260930090002_AddRebuildableAndCatalogOnlyFields` to the existing database.
 5. **Pre-migration backup** — when a non-empty catalog has pending migrations, the closed `catalog.sqlite` file is copied to `.archive/backups/catalog.pre-migration.*.sqlite` before migration. The test opens that backup independently, verifies the old schema is present, and verifies the seeded row remains readable.
 6. **Migration safety** — hashes a synthetic file in `Media/` before and after migration and proves the bytes are unchanged.
 7. **Catalog loss/rebuild** — deletes only `.archive/catalog.sqlite`, verifies media still exists, recreates the schema, and rebuilds core rows from durable manifests without changing media bytes.
@@ -54,8 +54,8 @@ CI runs `dotnet restore`, `dotnet build --configuration Release`, and `dotnet te
 
 Two schema versions are included:
 
-- `202609300001_InitialCatalog`: assets, media resources, source devices, and source observations.
-- `202609300002_AddRebuildableAndCatalogOnlyFields`: adds rebuildable `IsFavorite` plus catalog-only `LastIndexedAtUtc`.
+- `20260930090001_InitialCatalog`: assets, media resources, source devices, and source observations.
+- `20260930090002_AddRebuildableAndCatalogOnlyFields`: adds rebuildable `IsFavorite` plus catalog-only `LastIndexedAtUtc`.
 
 The spike applies migrations at archive open. Before mutating an existing non-empty catalog with pending migrations, it disposes the inspection context and copies the database file to a timestamped backup. The spike disables Microsoft.Data.Sqlite connection pooling so disposal deterministically releases the Windows file handle before this file-copy backup and before disposable test-directory cleanup.
 
