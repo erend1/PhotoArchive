@@ -1,0 +1,68 @@
+name: M000 Gallery Spike
+
+on:
+  push:
+    branches: [ issue/4-winui-gallery-performance ]
+  pull_request:
+    paths:
+      - 'spikes/M000.GalleryPerformance/**'
+      - 'tests/PhotoArchive.M000.GallerySpike.Core.Tests/**'
+      - 'docs/spikes/M000-GALLERY-PERFORMANCE.md'
+      - '.github/workflows/gallery-spike.yml'
+      - 'PhotoArchive.sln'
+
+jobs:
+  build-test-benchmark:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore PhotoArchive.sln
+      - name: Build
+        run: dotnet build PhotoArchive.sln --no-restore --configuration Release
+      - name: Test core spike behavior
+        run: dotnet test tests/PhotoArchive.M000.GallerySpike.Core.Tests/PhotoArchive.M000.GallerySpike.Core.Tests.csproj --no-build --configuration Release
+      - name: Capture runner specification
+        shell: pwsh
+        run: |
+          $os = Get-CimInstance Win32_OperatingSystem
+          $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+          $system = Get-CimInstance Win32_ComputerSystem
+          $gpu = Get-CimInstance Win32_VideoController | Select-Object -First 1
+          "GALLERY_SPIKE_WINDOWS=$($os.Caption) $($os.Version) build $($os.BuildNumber)" >> $env:GITHUB_ENV
+          "GALLERY_SPIKE_CPU=$($cpu.Name)" >> $env:GITHUB_ENV
+          "GALLERY_SPIKE_RAM=$([math]::Round($system.TotalPhysicalMemory / 1GB, 1)) GiB" >> $env:GITHUB_ENV
+          "GALLERY_SPIKE_GPU=$($gpu.Name)" >> $env:GITHUB_ENV
+      - name: Run automated WinUI benchmark
+        id: benchmark
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $artifactDir = Join-Path $PWD 'artifacts'
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $report = Join-Path $artifactDir 'gallery-winui-benchmark.json'
+          $exe = Get-ChildItem -Path 'spikes/M000.GalleryPerformance/PhotoArchive.M000.GallerySpike/bin/Release' -Filter 'PhotoArchive.M000.GallerySpike.exe' -Recurse | Select-Object -First 1
+          if ($null -eq $exe) { throw 'WinUI spike executable not found.' }
+          $process = Start-Process -FilePath $exe.FullName -ArgumentList '--benchmark', "--report=$report" -PassThru
+          if (-not $process.WaitForExit(90000)) {
+            Stop-Process -Id $process.Id -Force
+            throw 'Automated WinUI benchmark timed out after 90 seconds.'
+          }
+          if (-not (Test-Path $report)) { throw 'Benchmark process exited without writing a report.' }
+          Get-Content $report
+      - name: Record benchmark execution status
+        if: always()
+        shell: pwsh
+        run: |
+          $status = '${{ steps.benchmark.outcome }}'
+          "Automated WinUI benchmark outcome: $status" | Tee-Object -FilePath artifacts/benchmark-step-status.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m000-gallery-spike-evidence
+          path: artifacts/
+          if-no-files-found: warn
