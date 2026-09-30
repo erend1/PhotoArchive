@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace PhotoArchive.PersistenceSpike.Migrations;
 
 [DbContext(typeof(ArchiveDbContext))]
-[Migration("202609300002_AddRebuildableAndCatalogOnlyFields")]
+[Migration("20260930090002_AddRebuildableAndCatalogOnlyFields")]
 public sealed class AddRebuildableAndCatalogOnlyFields : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
