@@ -26,19 +26,21 @@ dotnet build PhotoArchive.sln -c Release
 dotnet test tests/PhotoArchive.M000.GallerySpike.Core.Tests/PhotoArchive.M000.GallerySpike.Core.Tests.csproj -c Release --no-build
 ```
 
-### Interactive Windows run
+### Interactive Windows benchmark
+
+Run this from an interactive Windows desktop (Windows 11 is preferred for the product-target check):
 
 ```powershell
-dotnet run --project spikes/M000.GalleryPerformance/PhotoArchive.M000.GallerySpike/PhotoArchive.M000.GallerySpike.csproj -c Release -p:Platform=x64
+.\spikes\M000.GalleryPerformance\run-benchmark.ps1
 ```
 
-Use the 25%/50%/75%/End buttons or `Run benchmark`. The benchmark writes `gallery-spike-benchmark.json` next to the executable unless `--report=<path>` is supplied.
+The script captures Windows/CPU/RAM/GPU details, builds the x64 spike, launches `--benchmark`, and writes `artifacts/gallery-winui-benchmark-local.json`. Startup checkpoints are written beside the report as `startup-trace.log`.
 
-### Automated evidence run
+### Hosted evidence run
 
-The branch workflow `.github/workflows/gallery-spike.yml` builds/tests on `windows-latest`, captures Windows/CPU/RAM/GPU details, launches the self-contained WinUI spike with `--benchmark`, and uploads `m000-gallery-spike-evidence`.
+`.github/workflows/gallery-spike.yml` builds/tests on `windows-2022`, captures machine details, attempts the same self-measuring executable, preserves startup/Application-event diagnostics, and uploads `m000-gallery-spike-evidence`.
 
-## What is measured
+## What a successful UI run measures
 
 The JSON report records:
 
@@ -53,30 +55,81 @@ The JSON report records:
 - selected item count
 - per-jump realization latency
 
-## Interpretation rules
+## Viability gate
 
-The spike must demonstrate all of the following before `WINUI_ITEMS_VIEW_VIABLE` is accepted:
+`WINUI_ITEMS_VIEW_VIABLE` is emitted only when all of these are observed in the same successful UI run:
 
 1. 100,000 logical assets are present.
-2. Peak realized tiles are far below the dataset size (the automated guard uses `< 2,000`).
-3. Metadata materialization remains below half the dataset during the representative fast-scroll sequence.
-4. Each representative jump realizes its target within 5 seconds on the recorded machine.
-5. The report is produced without reading any original media path.
-6. Multi-selection contains at least three selected items.
-7. Thumbnail cancellation is observable when realized items leave the viewport before synthetic work completes.
+2. Peak simultaneously realized tiles is greater than zero and below 2,000.
+3. Fewer than all 100,000 presentation items are instantiated.
+4. Metadata materialization remains below half the dataset during the representative fast-scroll sequence.
+5. At least three items remain selected.
+6. At least one thumbnail completes and at least one obsolete thumbnail request is cancelled.
+7. All five representative jumps (25%, 50%, 75%, end, start) realize within 5 seconds.
+8. No original-media path is read by the source or thumbnail service.
 
-If ItemsView violates the working-set/scroll criteria, the next experiment is a documented lower-level WinUI primitive (normally `ItemsRepeater`/`ScrollView`) rather than a custom virtualization framework.
+A successful UI run that reaches ItemsView but fails this gate recommends `WINUI_ALTERNATIVE_CONTROL_REQUIRED`. A runtime that cannot reach the spike view cannot be used to judge ItemsView and is recorded as `WINUI_GALLERY_BLOCKED` until the same harness is run in a suitable interactive Windows session.
 
-## Known measurement limitation
+## Recorded evidence — 2026-09-30
 
-GitHub-hosted Windows runners are useful for reproducibility but are not a substitute for the target developer machine. The final issue/PR handoff must preserve the runner measurements and should add one local-development-machine run before M002 performance budgets are frozen.
+### Build and non-UI behavior
+
+Authoritative hosted run: GitHub Actions run `36696232844` on `windows-2022`.
+
+- Windows: Microsoft Windows Server 2022 Datacenter 10.0.20348, build 20348
+- CPU: AMD EPYC 7763 64-Core Processor
+- RAM: 16 GiB
+- GPU: Microsoft Hyper-V Video
+- .NET SDK: 10.0.401
+- Windows App SDK package: 2.5.1
+- Dataset configured: 100,000 synthetic assets
+- Metadata page size: 256
+- Presentation-item cache cap: 4,096
+- Release build: succeeded, 0 warnings, 0 errors, 25.87 s
+- Core tests: 4 passed, 0 failed, 0 skipped, 122 ms
+- Core evidence confirms deterministic 100,000-item generation, descending chronology, page reuse rather than eager full materialization, cancellable thumbnail work, and thumbnail generation without media-file input.
+
+### WinUI runtime blocker
+
+Two independent hosted runner images were attempted:
+
+1. `windows-latest` / Windows Server 2025 Datacenter 10.0.26100: the built x64 executable terminated with native exit code `0xC0000409` in `USER32.dll` before any managed startup checkpoint was written.
+2. `windows-2022` / Windows Server 2022 Datacenter 10.0.20348: the same executable again terminated with `0xC0000409` in `USER32.dll` before `App` construction; no `startup-trace.log` and no benchmark JSON were produced.
+
+Because both failures occur before the first line of application-managed startup code, ItemsView, LinedFlowLayout, the 100,000-item source, thumbnail scheduling, scrolling, and selection are never reached in the hosted runs. These failures therefore do **not** demonstrate an ItemsView performance defect, and they do not justify dropping to `ItemsRepeater` or a custom virtualization framework.
+
+UI-only numeric measurements (first usable latency, working set, realized element count, jump latency, and viewport-driven cancellation) are intentionally **not fabricated**. They remain unavailable until the committed harness is executed in an interactive Windows desktop session.
+
+## Acceptance evidence status
+
+| Issue #4 criterion | Status | Evidence |
+| --- | --- | --- |
+| At least 100,000 synthetic assets | Proven in code/tests | 100,000 logical source; test prevents smaller configured dataset |
+| UI does not instantiate/render all controls | Runtime-blocked | Instrumentation is committed, but hosted WinUI terminates before `App` |
+| Usable gallery without original-media reads | Runtime-blocked | Data/thumbnail services never accept an original path; usability cannot be measured before native startup succeeds |
+| Paged/virtualized metadata | Proven in code/tests | 256-row page source; page reuse/eager-materialization test |
+| Lazy viewport-aware thumbnails | Runtime-blocked integration | Requests originate from tile realization; hosted UI never reaches realization |
+| Obsolete work cancellation/deprioritization | Proven at service level; runtime-blocked integration | cancellation unit test passes; realization/unrealization wiring is committed |
+| Fast scrolling and multi-selection | Runtime-blocked | benchmark harness is committed; hosted UI never reaches it |
+| Startup, memory, representative fast-scroll measurements | Blocked | no defensible UI numbers exist because native startup fails first |
+| Material bottleneck identified | Proven | hosted WinUI desktop execution fails in USER32 before managed startup |
+| Clear recommendation | Proven | `WINUI_GALLERY_BLOCKED` |
 
 ## Failed/abandoned approaches
 
-- No giant `ObservableCollection` of 100,000 item view models: rejected because it defeats the data-virtualization objective before ItemsView is tested.
-- No eager thumbnail generation: rejected because it scales work with catalog size instead of viewport realization.
-- No custom virtualization control: not justified until ItemsView measurements fail.
+- A giant `ObservableCollection` of 100,000 item view models was rejected because it defeats the data-virtualization objective before ItemsView is tested.
+- Eager thumbnail generation was rejected because it scales work with catalog size instead of viewport realization.
+- A custom virtualization control was not attempted because there is no measurement showing ItemsView itself is insufficient.
+- Initial Actions build failed only because the test project lacked the xUnit global import; the WinUI project had compiled. Adding the import produced a clean full build and 4/4 tests.
+- The first benchmark launcher searched `bin/Release`; the WinUI x64 output is under `bin/x64/Release`. The launcher was fixed and the executable was then reached.
+- `windows-latest` (Server 2025) was replaced with `windows-2022` to remove OS-image compatibility as a variable. Both runner images failed identically before managed startup.
 
-## Recommendation
+## M002 constraints / integration concern
 
-The authoritative recommendation is the token in the committed benchmark evidence / Issue handoff after the Windows run. Do not infer viability from build success alone.
+Do not promote the spike's `VirtualizedGallerySource`, synthetic thumbnail service, 4,096 cache cap, 2,000-element guard, or 5-second jump guard into production contracts or budgets. They are experimental instrumentation. Keep the ADR-0009 MVP boundary and ItemsView-first direction provisional until `run-benchmark.ps1` produces a successful report on the product-target interactive Windows environment.
+
+The integration agent should require one successful interactive Windows run before M002 Gallery implementation treats ItemsView as validated. If that run reaches ItemsView and fails the viability gate, then run the lower-level documented-control comparison; do not build custom virtualization first.
+
+## Final recommendation
+
+WINUI_GALLERY_BLOCKED

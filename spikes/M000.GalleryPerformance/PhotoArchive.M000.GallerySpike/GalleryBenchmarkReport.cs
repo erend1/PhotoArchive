@@ -46,9 +46,13 @@ public sealed record GalleryBenchmarkReport(
         int selectedItems,
         IReadOnlyList<GalleryJumpMeasurement> jumps)
     {
-        var viable = GalleryTileMetrics.PeakActive < 2_000
+        var viable = GalleryTileMetrics.PeakActive is > 0 and < 2_000
+            && items.CreatedItemCount < options.DatasetSize
             && pages.RowsMaterialized < options.DatasetSize / 2
-            && jumps.Count > 0
+            && selectedItems >= 3
+            && thumbnails.Completed > 0
+            && thumbnails.Cancelled > 0
+            && jumps.Count == 5
             && jumps.All(static jump => jump.Milliseconds < 5_000);
 
         return new GalleryBenchmarkReport(
