@@ -62,7 +62,8 @@ public static class ArchiveDbContextFactory
         var builder = new SqliteConnectionStringBuilder
         {
             DataSource = ArchivePaths.CatalogPath(archiveRoot),
-            Mode = SqliteOpenMode.ReadWriteCreate
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Pooling = false
         };
 
         var options = new DbContextOptionsBuilder<ArchiveDbContext>()
