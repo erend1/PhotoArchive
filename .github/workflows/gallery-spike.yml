@@ -20,12 +20,21 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Prepare evidence directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path artifacts | Out-Null
       - name: Restore
         run: dotnet restore PhotoArchive.sln
       - name: Build
-        run: dotnet build PhotoArchive.sln --no-restore --configuration Release
+        shell: pwsh
+        run: |
+          dotnet build PhotoArchive.sln --no-restore --configuration Release 2>&1 | Tee-Object -FilePath artifacts/build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test core spike behavior
-        run: dotnet test tests/PhotoArchive.M000.GallerySpike.Core.Tests/PhotoArchive.M000.GallerySpike.Core.Tests.csproj --no-build --configuration Release
+        shell: pwsh
+        run: |
+          dotnet test tests/PhotoArchive.M000.GallerySpike.Core.Tests/PhotoArchive.M000.GallerySpike.Core.Tests.csproj --no-build --configuration Release 2>&1 | Tee-Object -FilePath artifacts/tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Capture runner specification
         shell: pwsh
         run: |
@@ -37,13 +46,19 @@ jobs:
           "GALLERY_SPIKE_CPU=$($cpu.Name)" >> $env:GITHUB_ENV
           "GALLERY_SPIKE_RAM=$([math]::Round($system.TotalPhysicalMemory / 1GB, 1)) GiB" >> $env:GITHUB_ENV
           "GALLERY_SPIKE_GPU=$($gpu.Name)" >> $env:GITHUB_ENV
+          @(
+            "Windows: $($os.Caption) $($os.Version) build $($os.BuildNumber)",
+            "CPU: $($cpu.Name)",
+            "RAM: $([math]::Round($system.TotalPhysicalMemory / 1GB, 1)) GiB",
+            "GPU: $($gpu.Name)",
+            "dotnet: $(dotnet --version)"
+          ) | Set-Content artifacts/runner-spec.txt
       - name: Run automated WinUI benchmark
         id: benchmark
         shell: pwsh
         continue-on-error: true
         run: |
           $artifactDir = Join-Path $PWD 'artifacts'
-          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
           $report = Join-Path $artifactDir 'gallery-winui-benchmark.json'
           $exe = Get-ChildItem -Path 'spikes/M000.GalleryPerformance/PhotoArchive.M000.GallerySpike/bin/Release' -Filter 'PhotoArchive.M000.GallerySpike.exe' -Recurse | Select-Object -First 1
           if ($null -eq $exe) { throw 'WinUI spike executable not found.' }
