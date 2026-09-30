@@ -1,0 +1,52 @@
+name: Implementation Task
+description: Focused implementation work tied to a milestone
+title: "[Mxxx] "
+labels: ["implementation"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What concrete outcome should this issue deliver?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and References
+      description: Link milestone docs, ADRs, related issues, and relevant code.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: In Scope
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of Scope
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Use checkboxes. Criteria must be testable.
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Required Tests / Evidence
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk Notes
+      description: Data loss, destructive operations, concurrency, migrations, performance, external APIs, dependencies/licenses.
