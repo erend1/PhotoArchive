@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace PhotoArchive.PersistenceSpike.Migrations;
 
 [DbContext(typeof(ArchiveDbContext))]
-[Migration("202609300001_InitialCatalog")]
+[Migration("20260930090001_InitialCatalog")]
 public sealed class InitialCatalog : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
