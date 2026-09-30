@@ -58,17 +58,25 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
-          $artifactDir = Join-Path $PWD 'artifacts'
-          $report = Join-Path $artifactDir 'gallery-winui-benchmark.json'
-          $exe = Get-ChildItem -Path 'spikes/M000.GalleryPerformance/PhotoArchive.M000.GallerySpike/bin/Release' -Filter 'PhotoArchive.M000.GallerySpike.exe' -Recurse | Select-Object -First 1
-          if ($null -eq $exe) { throw 'WinUI spike executable not found.' }
-          $process = Start-Process -FilePath $exe.FullName -ArgumentList '--benchmark', "--report=$report" -PassThru
-          if (-not $process.WaitForExit(90000)) {
-            Stop-Process -Id $process.Id -Force
-            throw 'Automated WinUI benchmark timed out after 90 seconds.'
+          try {
+            $artifactDir = Join-Path $PWD 'artifacts'
+            $report = Join-Path $artifactDir 'gallery-winui-benchmark.json'
+            $exe = Get-ChildItem -Path 'spikes/M000.GalleryPerformance/PhotoArchive.M000.GallerySpike/bin' -Filter 'PhotoArchive.M000.GallerySpike.exe' -Recurse | Select-Object -First 1
+            if ($null -eq $exe) { throw 'WinUI spike executable not found.' }
+            "Executable: $($exe.FullName)" | Set-Content artifacts/benchmark-launch.txt
+            $process = Start-Process -FilePath $exe.FullName -ArgumentList '--benchmark', "--report=$report" -PassThru
+            if (-not $process.WaitForExit(90000)) {
+              Stop-Process -Id $process.Id -Force
+              throw 'Automated WinUI benchmark timed out after 90 seconds.'
+            }
+            "ExitCode: $($process.ExitCode)" | Add-Content artifacts/benchmark-launch.txt
+            if (-not (Test-Path $report)) { throw 'Benchmark process exited without writing a report.' }
+            Get-Content $report
           }
-          if (-not (Test-Path $report)) { throw 'Benchmark process exited without writing a report.' }
-          Get-Content $report
+          catch {
+            $_ | Out-String | Set-Content artifacts/benchmark-error.txt
+            throw
+          }
       - name: Record benchmark execution status
         if: always()
         shell: pwsh
