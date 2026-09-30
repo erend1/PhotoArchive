@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -8,7 +9,6 @@ namespace PhotoArchive.PersistenceSpike.Tests;
 
 public sealed class ArchivePortabilityIntegrationTests
 {
-    private const string InitialMigration = "202609300001_InitialCatalog";
     private readonly ArchiveCatalog _catalog = new();
 
     [Fact]
@@ -79,8 +79,13 @@ public sealed class ArchivePortabilityIntegrationTests
 
         await using (var v1Context = ArchiveDbContextFactory.Create(root))
         {
+            var migrations = (await v1Context.Database.GetMigrationsAsync())
+                .OrderBy(x => x, StringComparer.Ordinal)
+                .ToArray();
+            Assert.Equal(2, migrations.Length);
+
             var migrator = v1Context.Database.GetService<IMigrator>();
-            await migrator.MigrateAsync(InitialMigration);
+            await migrator.MigrateAsync(migrations[0]);
             await v1Context.Database.ExecuteSqlRawAsync(
                 "INSERT INTO ArchiveAssets (AssetId, CaptureDate, MediaKind, ImportedAt) VALUES ({0}, {1}, {2}, {3});",
                 Guid.NewGuid(),
@@ -237,8 +242,13 @@ public sealed class ArchivePortabilityIntegrationTests
 
     private static ArchiveDbContext CreateContextForDatabase(string databasePath)
     {
+        var builder = new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Pooling = false
+        };
         var options = new DbContextOptionsBuilder<ArchiveDbContext>()
-            .UseSqlite($"Data Source={databasePath}")
+            .UseSqlite(builder.ToString())
             .Options;
         return new ArchiveDbContext(options);
     }
