@@ -79,7 +79,7 @@ public sealed class ArchivePortabilityIntegrationTests
 
         await using (var v1Context = ArchiveDbContextFactory.Create(root))
         {
-            var migrations = (await v1Context.Database.GetMigrationsAsync())
+            var migrations = v1Context.Database.GetMigrations()
                 .OrderBy(x => x, StringComparer.Ordinal)
                 .ToArray();
             Assert.Equal(2, migrations.Length);
