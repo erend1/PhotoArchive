@@ -137,8 +137,9 @@ internal static class Help
           enumerate [--max N] [--batch N] [--cancel-after N] [--ids-only] [--max-depth N]
                                       Progressive enumeration with per-object properties and timing
           thumbs [--count N] [--save] Device thumbnails via WPD_RESOURCE_THUMBNAIL
-          copy [--count N | --object ID] [--keep] [--no-reread] [--max-total-mb N]
+          copy [--count N | --newest N | --object ID] [--keep] [--no-reread] [--max-total-mb N]
                                       Original bytes via staging + size/hash/signature verification
+                                      (--newest N = the N most recent captures; hashes go to raw\copies.jsonl)
           identity-snapshot [--snapshot-out PATH]
           identity-compare BEFORE.json AFTER.json
                                       Object ID / PUID stability across reconnects

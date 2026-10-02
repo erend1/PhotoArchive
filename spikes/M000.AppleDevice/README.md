@@ -70,9 +70,9 @@ Every command prints the path of its sanitized `report.md`. Paste those files (o
 | E1 | Detection, trust, lock behaviour | `& $probe devices --watch 180`, then: plug in while **locked** → unlock → observe the Trust prompt → tap Trust → lock the phone for 30 s → unlock → unplug. Note the time each step happened. |
 | E2 | Driver-declared capabilities | `& $probe inspect` — records supported WPD commands (does the driver offer delete / create-with-data?), `WPD_STORAGE_ACCESS_CAPABILITY`, events, firmware (iOS) version. |
 | E3 | Read-only battery | `& $probe report` (all objects; add `--max 3000` on very large libraries). Enumeration timing, property presence, thumbnails, verified copies, Windows.Media.Import sources/items. |
-| E4 | Original bytes vs. conversion | With **Keep Originals**: `& $probe copy --count 12`. Switch to **Automatic**, unplug/replug, run again. Compare "signature contradicts extension", "size match", and file types. Switch back to Keep Originals afterwards. |
+| E4 | Original bytes vs. conversion | Take a test photo, replug, then `& $probe copy --newest 2` under **Automatic**. Switch to **Keep Originals**, **replug** (the setting does not apply to an open connection), run again. Compare names, sizes, signatures and the SHA-256 values in `raw\copies.jsonl` (local only). Under Automatic the converted JPEG looks fully consistent; only the comparison reveals it. |
 | E5 | Identifier stability | `& $probe identity-snapshot` → unplug/replug → `identity-snapshot` → `& $probe identity-compare <first raw\identity-snapshot.json> <second ...>`. Repeat after restarting the iPhone, and after taking one new photo + deleting one old photo on the phone. |
-| E6 | Live Photos, edits | Take a Live Photo; crop a photo; trim a video; then `& $probe copy --count 30`. Look for the "Live Photo candidate … share a UUID token" lines and `IMG_E*` / `.AAE` rows. |
+| E6 | Live Photos, edits | Take a Live Photo; crop a photo; trim a video; **replug**; then `& $probe copy --newest 6`. Look for the "Live Photo candidate … share a UUID token" lines and `IMG_E*` / `.AAE` rows. |
 | E7 | iCloud Photos + Optimize Storage | With iCloud Photos on and Optimize Storage on, compare the item count in Photos (Library > All Photos, bottom of the grid) with the image+video counts from E3. Open an old photo that shows a download indicator in Photos and check whether it appears in the enumeration and what `copy --object` returns. |
 | E8 | Hidden / Recently Deleted / Shared Library | Hide a throwaway photo; delete another throwaway photo in Photos (it moves to Recently Deleted); re-run `enumerate` and check whether either is listed. If Shared Library is used, note whether shared items are listed. |
 | E9 | In-session change events | `& $probe watch --seconds 120`: take a photo, delete a photo, lock, then unplug. |
@@ -109,8 +109,19 @@ Run `apple-device-probe help`. Common options: `--device N` (index from `devices
 
 ## Troubleshooting
 
-- `No Apple device is visible through Windows Portable Devices` → unlock, trust, data cable, Apple Devices installed,
-  "Apple iPhone" under *Portable Devices* in Device Manager. `scripts/Collect-Environment.ps1` shows which driver is bound.
-- `0x8007001F … A device attached to the system is not functioning` during `copy` → record it (it is evidence), then
-  retry with **Keep Originals** (widely reported to be linked to on-the-fly conversion; not an Apple-documented cause).
+Observed with a real iPhone (iOS 27.0); see `evidence/2026-10-02-iphone-ios27-icloud-optimize.md`:
+
+- **"Internal Storage" listed but empty (`Enumerated 1 objects`)**:
+  - the phone was locked when it was connected → unlock it and tap **Trust**; the content then appears without a replug;
+  - or the phone reset the session after a photo was taken or the library changed → **unplug and replug**.
+- **Copy fails with `0x8007001E` (read fault) or `0x80042007` (incomplete transfer)** → the device state changed after the
+  listing (e.g. the transfer setting was switched mid-session) → replug and retry. Nothing is promoted on failure.
+- **Only a handful of photos are listed** although Photos shows thousands → iCloud Photos with *Optimize iPhone Storage*:
+  only items stored on the phone are visible over USB. This is expected, not a probe error.
+- **New photos don't appear** → photos taken while connected appear only after a replug.
+- `No Apple device is visible through Windows Portable Devices` → unlock, trust, data cable, "Apple iPhone" under
+  *Portable Devices* in Device Manager. `scripts/Collect-Environment.ps1` shows which driver is bound (on the test PC the
+  in-box `wpdmtp.inf` worked without the Apple Devices app, because Apple's USB driver package was already present).
+- `0x8007001F … A device attached to the system is not functioning` → record it, then retry with **Keep Originals**
+  (community-reported link to on-the-fly conversion; not observed in our sessions).
 - `E_ACCESSDENIED` on open → phone locked or not trusted.
