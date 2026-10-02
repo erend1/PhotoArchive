@@ -262,6 +262,7 @@ internal readonly record struct WpdHResult(int Value)
         [unchecked((int)0x80070032)] = "HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED)",
         [unchecked((int)0x80070490)] = "HRESULT_FROM_WIN32(ERROR_NOT_FOUND)",
         [unchecked((int)0x8007001F)] = "HRESULT_FROM_WIN32(ERROR_GEN_FAILURE) 'A device attached to the system is not functioning'",
+        [unchecked((int)0x8007001E)] = "HRESULT_FROM_WIN32(ERROR_READ_FAULT) 'The system cannot read from the specified device'",
         [unchecked((int)0x8007048F)] = "HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED)",
         [unchecked((int)0x800704C7)] = "HRESULT_FROM_WIN32(ERROR_CANCELLED)",
         [unchecked((int)0x800710DF)] = "HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_AVAILABLE)",
@@ -280,8 +281,49 @@ internal readonly record struct WpdHResult(int Value)
         [HRESULT.E_WPD_SERVICE_BAD_PARAMETER_ORDER.Value] = nameof(HRESULT.E_WPD_SERVICE_BAD_PARAMETER_ORDER),
     };
 
-    public static string Describe(int hr) =>
-        Known.TryGetValue(hr, out var name) ? $"0x{hr:X8} {name}" : $"0x{hr:X8}";
+    // PTP (ISO 15740) / MTP response codes. The WPD MTP driver appears to surface some of them as 0x8004xxxx
+    // HRESULTs (e.g. 0x8004200A for an unsupported device property); that mapping is inferred, not documented.
+    private static readonly Dictionary<int, string> PtpResponses = new()
+    {
+        [0x2002] = "General_Error",
+        [0x2003] = "Session_Not_Open",
+        [0x2005] = "Operation_Not_Supported",
+        [0x2006] = "Parameter_Not_Supported",
+        [0x2007] = "Incomplete_Transfer",
+        [0x2008] = "Invalid_StorageID",
+        [0x2009] = "Invalid_ObjectHandle",
+        [0x200A] = "DeviceProp_Not_Supported",
+        [0x200B] = "Invalid_ObjectFormatCode",
+        [0x200C] = "Store_Full",
+        [0x200D] = "Object_WriteProtected",
+        [0x200E] = "Store_Read_Only",
+        [0x200F] = "Access_Denied",
+        [0x2010] = "No_Thumbnail_Present",
+        [0x2012] = "Partial_Deletion",
+        [0x2013] = "Store_Not_Available",
+        [0x2015] = "No_Valid_ObjectInfo",
+        [0x2019] = "Device_Busy",
+        [0x201A] = "Invalid_ParentObject",
+        [0x201D] = "Invalid_Parameter",
+        [0x201F] = "Transaction_Cancelled",
+        [0xA809] = "Object_Too_Large (MTP)",
+        [0xA80A] = "ObjectProp_Not_Supported (MTP)",
+    };
+
+    public static string Describe(int hr)
+    {
+        if (Known.TryGetValue(hr, out var name))
+        {
+            return $"0x{hr:X8} {name}";
+        }
+
+        if ((hr & unchecked((int)0xFFFF0000)) == unchecked((int)0x80040000) && PtpResponses.TryGetValue(hr & 0xFFFF, out var ptp))
+        {
+            return $"0x{hr:X8} (likely PTP/MTP response 0x{hr & 0xFFFF:X4} {ptp}; mapping inferred)";
+        }
+
+        return $"0x{hr:X8}";
+    }
 
     public override string ToString() => Describe(Value);
 }

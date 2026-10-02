@@ -49,6 +49,29 @@ public sealed class WpdNamesTests
     {
         Assert.Equal("0x80070005 E_ACCESSDENIED", WpdHResult.Describe(unchecked((int)0x80070005)));
         Assert.Equal("0x802A0006 E_WPD_DEVICE_IS_HUNG", WpdHResult.Describe(unchecked((int)0x802A0006)));
+        Assert.Contains("ERROR_READ_FAULT", WpdHResult.Describe(unchecked((int)0x8007001E)), StringComparison.Ordinal);
         Assert.Equal("0x12345678", WpdHResult.Describe(0x12345678));
+    }
+
+    [Fact]
+    public void Ptp_response_hresults_are_labelled_as_inferred()
+    {
+        var described = WpdHResult.Describe(unchecked((int)0x80042007));
+
+        Assert.Contains("PTP/MTP response 0x2007 Incomplete_Transfer", described, StringComparison.Ordinal);
+        Assert.Contains("inferred", described, StringComparison.Ordinal);
+        Assert.Equal("0x80041234", WpdHResult.Describe(unchecked((int)0x80041234)));
+    }
+
+    [Fact]
+    public void Mtp_event_guids_are_decoded()
+    {
+        var objectAdded = new Guid(0x40020000, 0x5738, 0x4FF2, 0x84, 0x45, 0xBE, 0x31, 0x26, 0x69, 0x10, 0x59);
+        var vendor = new Guid(0xC7040000, 0x5738, 0x4FF2, 0x84, 0x45, 0xBE, 0x31, 0x26, 0x69, 0x10, 0x59);
+
+        Assert.Equal("PTP/MTP event 0x4002 (ObjectAdded)", WpdNames.Guid(objectAdded));
+        Assert.Equal("PTP/MTP event 0xC704 (vendor/unknown)", WpdNames.Guid(vendor));
+        Assert.Null(WpdNames.MtpEventCode(PInvoke.WPD_OBJECT_FORMAT_EXIF));
+        Assert.Equal("WPD_EVENT_OBJECT_ADDED", WpdNames.Guid(PInvoke.WPD_EVENT_OBJECT_ADDED));
     }
 }

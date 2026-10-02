@@ -19,14 +19,15 @@ internal static partial class CopyCommand
     private const long RereadLimitBytes = 64L * 1024 * 1024;
     private const int ScanWindowBytes = 8 * 1024 * 1024;
 
-    internal sealed record Options(int Count, IReadOnlyList<string> ObjectIds, bool Reread, bool Keep, long MaxTotalBytes)
+    internal sealed record Options(int Count, IReadOnlyList<string> ObjectIds, bool Reread, bool Keep, long MaxTotalBytes, int Newest = 0)
     {
         internal static Options From(CommandLine cli) => new(
             Count: Math.Clamp(cli.GetInt("count", 8), 1, 200),
             ObjectIds: cli.Get("object") is { Length: > 0 } id ? [id] : [],
             Reread: !cli.Has("no-reread"),
             Keep: cli.Has("keep"),
-            MaxTotalBytes: Math.Max(1, cli.GetInt("max-total-mb", 2048)) * 1024L * 1024L);
+            MaxTotalBytes: Math.Max(1, cli.GetInt("max-total-mb", 2048)) * 1024L * 1024L,
+            Newest: Math.Clamp(cli.GetInt("newest", 0), 0, 50));
     }
 
     internal sealed record Outcome(
@@ -41,7 +42,9 @@ internal static partial class CopyCommand
         bool? RereadMatches,
         EmbeddedMetadata? Metadata,
         string? AdjustmentSummary,
-        string? Error);
+        string? Error,
+        string? HeaderHex = null,
+        string? RereadHeaderHex = null);
 
     [GeneratedRegex(@"<key>([^<]{1,64})</key>", RegexOptions.CultureInvariant)]
     private static partial Regex PlistKey();
@@ -57,9 +60,11 @@ internal static partial class CopyCommand
             .Fact("Transaction model", "stream to staging/*.partial -> verify -> File.Move to verified/ (never promoted on failure)")
             .Fact("Copies retained after run", options.Keep ? "yes (--keep; they are personal media, do not commit)" : "no (deleted after verification)");
 
-        var targets = options.ObjectIds.Count > 0
-            ? objects.Where(o => options.ObjectIds.Contains(o.ObjectId)).ToList()
-            : SampleSelector.Representative(objects, options.Count, includeGroups: true);
+        var targets = SelectTargets(objects, options);
+        section.Fact("Selection", options.ObjectIds.Count > 0 ? "explicit --object"
+            : options.Newest > 0 ? $"--newest {options.Newest} (most recent DATE_CREATED)"
+            : $"representative kinds, filled up to --count {options.Count}");
+        using var hashLog = new StreamWriter(Path.Combine(ctx.RawDirectory, "copies.jsonl"), append: true);
 
         var staging = Path.Combine(ctx.RawDirectory, "staging");
         var verified = Path.Combine(ctx.RawDirectory, "verified");
@@ -80,6 +85,21 @@ internal static partial class CopyCommand
             var outcome = CopyOne(ctx, device, obj, index, staging, verified, options);
             total += outcome.BytesRead;
             outcomes.Add(outcome);
+            hashLog.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                CapturedAtUtc = DateTime.UtcNow,
+                obj.ObjectId,
+                obj.PersistentUniqueId,
+                obj.FileName,
+                obj.DateCreated,
+                ReportedSize = obj.Size,
+                outcome.BytesRead,
+                outcome.Sha256,
+                Sniffed = outcome.Sniffed.ToString(),
+                HeaderHex = outcome.HeaderHex,
+                outcome.RereadMatches,
+                outcome.Error,
+            }));
             var label = ctx.Sanitizer.FileName(obj.FileName);
             if (outcome.Succeeded)
             {
@@ -118,7 +138,7 @@ internal static partial class CopyCommand
                 o.MegabytesPerSecond.ToString("F1", CultureInfo.InvariantCulture),
                 o.Metadata is null ? "" : $"{Fmt(o.Metadata.ExifFound)} / {Fmt(o.Metadata.GpsLatitudePresent)} / {Fmt(o.Metadata.DateTimeOriginalPresent)} / {Fmt(o.Metadata.AppleMakerNotePresent)}",
                 o.Metadata is null ? "" : $"{Fmt(o.Metadata.QuickTimeLocationPresent)} / {Fmt(o.Metadata.ContentIdentifierKeyPresent)}",
-                o.Error ?? o.AdjustmentSummary ?? "",
+                o.Error ?? o.AdjustmentSummary ?? (o.BytesRead is > 0 and <= 64 ? $"tiny payload hex {o.HeaderHex}; re-read {o.RereadHeaderHex}" : ""),
             ]));
 
         DescribeRelationships(ctx, section, outcomes);
@@ -132,6 +152,28 @@ internal static partial class CopyCommand
         }
 
         return outcomes;
+    }
+
+    private static List<EnumeratedObject> SelectTargets(IReadOnlyList<EnumeratedObject> objects, Options options)
+    {
+        if (options.ObjectIds.Count > 0)
+        {
+            return objects.Where(o => options.ObjectIds.Contains(o.ObjectId)).ToList();
+        }
+
+        var media = objects.Where(o => o.IsMediaLike && o.PropertyError is null).ToList();
+        if (options.Newest > 0)
+        {
+            return media.Where(o => o.DateCreated is not null)
+                .OrderByDescending(o => o.DateCreated)
+                .ThenBy(o => o.FileName, StringComparer.Ordinal)
+                .Take(options.Newest)
+                .ToList();
+        }
+
+        var picked = SampleSelector.Representative(objects, options.Count, includeGroups: true);
+        picked.AddRange(media.Where(o => !picked.Contains(o)).OrderBy(o => o.Size ?? ulong.MaxValue).Take(Math.Max(0, options.Count - picked.Count)));
+        return picked;
     }
 
     private static Outcome CopyOne(RunContext ctx, WpdDevice device, EnumeratedObject obj, int index, string staging, string verified, Options options)
@@ -154,16 +196,20 @@ internal static partial class CopyCommand
             var adjustment = obj.Extension == "AAE" ? SummarizeAdjustment(partial) : null;
 
             bool? reread = null;
+            string? rereadHeader = null;
             if (options.Reread && read.BytesRead <= RereadLimitBytes)
             {
                 using var sink = Stream.Null;
-                reread = device.ReadResource(obj.ObjectId, PInvoke.WPD_RESOURCE_DEFAULT, sink, CancellationToken.None).Sha256 == read.Sha256;
+                var second = device.ReadResource(obj.ObjectId, PInvoke.WPD_RESOURCE_DEFAULT, sink, CancellationToken.None);
+                reread = second.Sha256 == read.Sha256;
+                rereadHeader = Convert.ToHexString(second.Header.AsSpan(0, Math.Min(second.Header.Length, 16)));
             }
 
             var final = Path.Combine(verified, $"{index:D3}.{(obj.Extension.Length > 0 ? obj.Extension.ToLowerInvariant() : "bin")}");
             File.Move(partial, final);
             return new Outcome(obj, true, read.BytesRead, read.Sha256, sniffed, MediaSignature.MatchesExtension(obj.Extension, sniffed), sizeMatches,
-                read.BytesRead / 1048576.0 / Math.Max(sw.Elapsed.TotalSeconds, 0.001), reread, metadata, adjustment, null);
+                read.BytesRead / 1048576.0 / Math.Max(sw.Elapsed.TotalSeconds, 0.001), reread, metadata, adjustment, null,
+                Convert.ToHexString(read.Header.AsSpan(0, Math.Min(read.Header.Length, 16))), rereadHeader);
         }
         catch (Exception ex)
         {

@@ -157,7 +157,7 @@ internal static class EnumerateCommand
             // Push in reverse so folders are visited in device order (depth-first).
             for (var i = children.Count - 1; i >= 0; i--)
             {
-                stack.Push((children[i].ObjectId, children[i].Name, children[i].Depth));
+                stack.Push((children[i].ObjectId, children[i].FileName, children[i].Depth));
             }
         }
     }
@@ -248,8 +248,8 @@ internal static class EnumerateCommand
             ["Depth", "Container (sanitized)", "Shape", "Children"],
             folders.Take(60).Select(f => (IReadOnlyList<string>)[
                 f.Depth.ToString(CultureInfo.InvariantCulture),
-                ctx.Sanitizer.FileName(f.Name),
-                DcimNameAnalyzer.Shape(f.Name),
+                ctx.Sanitizer.FileName(f.FileName),
+                DcimNameAnalyzer.Shape(f.FileName),
                 all.Count(o => o.ParentId == f.ObjectId).ToString(CultureInfo.InvariantCulture)]));
         if (folders.Count > 60)
         {
@@ -276,6 +276,21 @@ internal static class EnumerateCommand
         section.Line("Relationships above are inferred from DCIM file-name conventions only. They are candidates, never identity or completeness proof.");
     }
 
+    // String properties that describe the device model/protocol rather than the owner or their content.
+    private static readonly HashSet<string> NonPersonalStringKeys = new(StringComparer.Ordinal)
+    {
+        "WPD_DEVICE_MANUFACTURER",
+        "WPD_DEVICE_MODEL",
+        "WPD_DEVICE_FIRMWARE_VERSION",
+        "WPD_DEVICE_PROTOCOL",
+        "WPD_STORAGE_DESCRIPTION",
+        "WPD_STORAGE_FILE_SYSTEM_TYPE",
+    };
+
+    /// <summary>
+    /// Renders a property value for sanitized output. Fail-closed: a string from a key that is not explicitly
+    /// classified is redacted (length only), so new or unexpected properties cannot leak personal values.
+    /// </summary>
     internal static string SanitizedValue(RunContext ctx, PROPERTYKEY key, object? value)
     {
         var name = WpdNames.Key(key);
@@ -283,12 +298,16 @@ internal static class EnumerateCommand
         {
             Guid g => WpdNames.Guid(g),
             DateTime d => ctx.Sanitizer.Date(d),
+            string s when !ctx.Sanitizer.Enabled => s,
             string s when name is "WPD_OBJECT_NAME" or "WPD_OBJECT_ORIGINAL_FILE_NAME" => ctx.Sanitizer.FileName(s),
             string s when name is "WPD_OBJECT_ID" or "WPD_OBJECT_PERSISTENT_UNIQUE_ID" or "WPD_OBJECT_PARENT_ID" or "WPD_OBJECT_CONTAINER_FUNCTIONAL_OBJECT_ID"
                 => ctx.Sanitizer.Opaque(s, name.Replace("WPD_OBJECT_", string.Empty, StringComparison.Ordinal).ToLowerInvariant()),
+            string s when name.Contains("PNP_DEVICE_ID", StringComparison.Ordinal) || s.StartsWith(@"\\?\", StringComparison.Ordinal) || s.Contains("#{", StringComparison.Ordinal)
+                => ctx.Sanitizer.PnpId(s),
             string s when name.Contains("SERIAL", StringComparison.Ordinal) => ctx.Sanitizer.Serial(s),
             string s when name is "WPD_DEVICE_FRIENDLY_NAME" => ctx.Sanitizer.DeviceName(s),
-            string s when name is "WPD_DEVICE_SYNC_PARTNER" or "WPD_OBJECT_KEYWORDS" => ctx.Sanitizer.FreeText(s),
+            string s when NonPersonalStringKeys.Contains(name) => s,
+            string s => ctx.Sanitizer.FreeText(s),
             _ => ReportDocument.Format(value),
         };
     }

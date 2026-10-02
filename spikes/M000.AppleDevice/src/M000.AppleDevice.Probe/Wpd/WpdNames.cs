@@ -22,6 +22,7 @@ internal static class WpdNames
         [0x3002] = "Script",
         [0x3004] = "Text",
         [0x3006] = "DPOF",
+        [0x3007] = "AIFF",
         [0x3008] = "WAV",
         [0x3009] = "MP3",
         [0x300A] = "AVI",
@@ -45,6 +46,27 @@ internal static class WpdNames
         [0xB982] = "MP4 container (MTP)",
         [0xB984] = "3GP container (MTP)",
         [0xB985] = "3G2 container (MTP)",
+    };
+
+    private static readonly Dictionary<ushort, string> PtpEventCodes = new()
+    {
+        [0x4001] = "CancelTransaction",
+        [0x4002] = "ObjectAdded",
+        [0x4003] = "ObjectRemoved",
+        [0x4004] = "StoreAdded",
+        [0x4005] = "StoreRemoved",
+        [0x4006] = "DevicePropChanged",
+        [0x4007] = "ObjectInfoChanged",
+        [0x4008] = "DeviceInfoChanged",
+        [0x4009] = "RequestObjectTransfer",
+        [0x400A] = "StoreFull",
+        [0x400B] = "DeviceReset",
+        [0x400C] = "StorageInfoChanged",
+        [0x400D] = "CaptureComplete",
+        [0x400E] = "UnreportedStatus",
+        [0xC801] = "ObjectPropChanged (MTP)",
+        [0xC802] = "ObjectPropDescChanged (MTP)",
+        [0xC803] = "ObjectReferencesChanged (MTP)",
     };
 
     private static readonly Dictionary<(Guid, uint), string> KeyNames = new();
@@ -92,6 +114,14 @@ internal static class WpdNames
             return code is null ? name : $"{name} [PTP 0x{code:X4}]";
         }
 
+        var eventCode = MtpEventCode(value.Value);
+        if (eventCode is not null)
+        {
+            return PtpEventCodes.TryGetValue(eventCode.Value, out var eventName)
+                ? $"PTP/MTP event 0x{eventCode:X4} ({eventName})"
+                : $"PTP/MTP event 0x{eventCode:X4} (vendor/unknown)";
+        }
+
         var ptp = PtpFormatCode(value.Value);
         if (ptp is not null)
         {
@@ -104,12 +134,14 @@ internal static class WpdNames
     }
 
     /// <summary>Extracts the PTP/MTP ObjectFormatCode embedded in a WPD format GUID, if the GUID follows the PTP pattern.</summary>
-    internal static ushort? PtpFormatCode(Guid format)
+    internal static ushort? PtpFormatCode(Guid format) => EmbeddedCode(format, PtpFormatTemplate);
+
+    private static ushort? EmbeddedCode(Guid format, Guid family)
     {
         Span<byte> actual = stackalloc byte[16];
         Span<byte> template = stackalloc byte[16];
         format.TryWriteBytes(actual);
-        PtpFormatTemplate.TryWriteBytes(template);
+        family.TryWriteBytes(template);
 
         // Bytes 0..1 are the low word of Data1 (must be zero); bytes 2..3 hold the format code (little-endian).
         if (actual[0] != 0 || actual[1] != 0 || !actual[4..].SequenceEqual(template[4..]))
@@ -119,6 +151,12 @@ internal static class WpdNames
 
         return (ushort)(actual[2] | (actual[3] << 8));
     }
+
+    /// <summary>
+    /// Extracts the PTP/MTP event code from a WPD event GUID of the WPD_EVENT_MTP_VENDOR_EXTENDED_EVENTS family
+    /// ({XXXX0000-5738-4FF2-8445-BE3126691059}, event code in the high word of Data1).
+    /// </summary>
+    internal static ushort? MtpEventCode(Guid value) => EmbeddedCode(value, PInvoke.WPD_EVENT_MTP_VENDOR_EXTENDED_EVENTS);
 
     internal static string PtpFormatName(ushort code) =>
         PtpFormatCodes.TryGetValue(code, out var name) ? name : "vendor/unknown";
