@@ -1,0 +1,30 @@
+# Build output
+bin/
+obj/
+
+# Probe output must never be committed: it can contain personal media and metadata.
+runs/
+raw/
+staging/
+verified/
+thumbnails/
+wmi-import/
+*.partial
+*.jsonl
+identity-snapshot*.json
+
+# Personal media formats (the evidence/ folder only ever holds sanitized Markdown)
+*.heic
+*.heif
+*.hif
+*.jpg
+*.jpeg
+*.png
+*.dng
+*.gif
+*.tif
+*.tiff
+*.mov
+*.mp4
+*.m4v
+*.aae
